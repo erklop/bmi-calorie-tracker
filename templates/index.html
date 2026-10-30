@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BMI & Calorie Tracker</title>
+<style>
+:root{--bg:#f5f7f4;--card:#fff;--text:#1d2a22;--muted:#6b7a70;--accent:#2f8f5b;--accent-t:#fff;--line:#e2e8e3;--bar:#bfe3cf;--warn:#d9822b;--bad:#c9473d}
+@media(prefers-color-scheme:dark){:root{--bg:#121815;--card:#1b241f;--text:#e8efe9;--muted:#93a399;--accent:#4cc283;--accent-t:#0b1a11;--line:#2a362f;--bar:#2c5a42;--warn:#e8a054;--bad:#e5675d;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:880px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.6rem;margin:8px 0 20px}
+.grid{display:grid;gap:16px;grid-template-columns:1fr 1fr}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+.full{grid-column:1/-1}
+h2{font-size:1.05rem;margin:0 0 12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 4px}
+input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+.row{display:flex;gap:10px}.row>*{flex:1}
+button{margin-top:14px;padding:11px 16px;border:0;border-radius:10px;background:var(--accent);color:var(--accent-t);font:inherit;font-weight:600;cursor:pointer;width:100%}
+.x{background:none;color:var(--muted);width:auto;margin:0;padding:4px 8px}
+.result{margin-top:14px;padding:12px;border-radius:12px;background:var(--bg);display:none}
+.big{font-size:2rem;font-weight:700;line-height:1.1}
+.tip,.empty{color:var(--muted);font-size:.9rem}
+.err{color:var(--bad);font-size:.9rem;margin-top:8px}
+.stats{display:flex;gap:24px;margin-bottom:10px}
+.stat b{display:block;font-size:1.8rem;line-height:1.1}.stat span{color:var(--muted);font-size:.85rem}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+.chart{display:flex;align-items:flex-end;gap:8px;height:140px}
+.col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+.bar{width:100%;background:var(--bar);border-radius:6px 6px 0 0;min-height:2px}
+.col.today .bar{background:var(--accent)}
+.col small{font-size:.7rem;color:var(--muted);margin-top:4px}
+.col em{font-style:normal;font-size:.7rem}
+.hist{max-height:260px;overflow-y:auto}
+</style>
+</head>
+<body>
+<main>
+<h1>🧮 BMI & Calorie Tracker</h1>
+<div class="grid">
+
+<section class="card">
+<h2>🧍 BMI calculator</h2>
+<div class="row">
+<div><label for="w">Weight (kg)</label><input id="w" type="number" step="any" placeholder="70"></div>
+<div><label for="h">Height (m)</label><input id="h" type="number" step="any" placeholder="1.75"></div>
+</div>
+<button id="bmiBtn">Calculate BMI</button>
+<div class="result" id="bmiOut"></div>
+</section>
+
+<section class="card">
+<h2>🍎 Add calories</h2>
+<label for="cal">Calories (kcal)</label><input id="cal" type="number" step="any" placeholder="550">
+<button id="addBtn">Add meal</button>
+<div class="err" id="addErr"></div>
+</section>
+
+<section class="card">
+<h2>📅 Today’s summary</h2>
+<div class="stats"><div class="stat"><b id="tMeals">0</b><span>meals logged</span></div><div class="stat"><b id="tCal">0</b><span>kcal total</span></div></div>
+<ul id="tList"></ul>
+</section>
+
+<section class="card">
+<h2>📊 Last 7 days</h2>
+<div class="chart" id="chart"></div>
+</section>
+
+<section class="card full">
+<h2>History</h2>
+<div class="hist"><ul id="hist"></ul></div>
+</section>
+
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = n => Math.round(n * 10) / 10;
+
+async function api(url, method = "GET", body) {
+  const res = await fetch(url, {
+    method,
+    headers: {"Content-Type": "application/json"},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Something went wrong.");
+  return data;
+}
+
+$("bmiBtn").onclick = async () => {
+  const out = $("bmiOut");
+  out.style.display = "block";
+  try {
+    const r = await api("/api/bmi", "POST", {weight: $("w").value, height: $("h").value});
+    const col = r.category === "Normal weight" ? "var(--accent)" : r.category === "Obese" ? "var(--bad)" : "var(--warn)";
+    out.innerHTML = `<div class="big">${r.bmi.toFixed(2)}</div><div style="color:${col};font-weight:600">${r.category}</div>` +
+      (r.tip ? `<div class="tip">💡 Tip: ${esc(r.tip)}</div>` : "");
+  } catch (e) {
+    out.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  }
+};
+
+async function addMeal() {
+  $("addErr").textContent = "";
+  try {
+    await api("/api/calories", "POST", {calories: $("cal").value});
+    $("cal").value = "";
+    refresh();
+  } catch (e) {
+    $("addErr").textContent = e.message;
+  }
+}
+$("addBtn").onclick = addMeal;
+$("cal").addEventListener("keydown", e => { if (e.key === "Enter") addMeal(); });
+
+async function removeMeal(day, i) {
+  await api(`/api/calories/${day}/${i}`, "DELETE");
+  refresh();
+}
+
+async function refresh() {
+  const [today, all] = await Promise.all([api("/api/today"), api("/api/weekly")]);
+  const hist = [...all].reverse();
+  const byDay = Object.fromEntries(all.map(d => [d.date, d]));
+  const week = [];
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(); dt.setDate(dt.getDate() - i);
+    const key = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+    week.push(byDay[key] || {date: key, total: 0, count: 0});
+  }
+
+  $("tMeals").textContent = today.count;
+  $("tCal").textContent = fmt(today.total);
+  $("tList").innerHTML = today.meals.length
+    ? today.meals.map((m, i) => `<li><span>Meal ${i + 1} · ${fmt(m)} kcal</span><button class="x" data-i="${i}" aria-label="Remove">✕</button></li>`).join("")
+    : '<li class="empty">No entries yet!</li>';
+  document.querySelectorAll("#tList .x").forEach(b => b.onclick = () => removeMeal(today.date, +b.dataset.i));
+
+  const mx = Math.max(1, ...week.map(d => d.total));
+  $("chart").innerHTML = week.map(d => {
+    const label = new Date(d.date + "T00:00").toLocaleDateString(undefined, {weekday: "short"});
+    return `<div class="col${d.date === today.date ? " today" : ""}"><em>${d.total ? fmt(d.total) : ""}</em><div class="bar" style="height:${d.total / mx * 78}%"></div><small>${label}</small></div>`;
+  }).join("");
+
+  $("hist").innerHTML = hist.length
+    ? hist.map(d => `<li><span>${d.date}</span><span>${fmt(d.total)} kcal (${d.count} meal${d.count === 1 ? "" : "s"})</span></li>`).join("")
+    : '<li class="empty">No data available.</li>';
+}
+refresh();
+</script>
+</body>
+</html>
