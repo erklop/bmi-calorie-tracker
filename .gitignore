@@ -1,0 +1,1 @@
+"__pycache__/","calories.json","venv/",".venv/" | Set-Content .gitignore -Encoding ascii
